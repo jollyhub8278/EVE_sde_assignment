@@ -1,5 +1,9 @@
 from fastapi import FastAPI
+from sqlalchemy import text
+import src.models
+from src.utils.db import Base, engine
 
+Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 
@@ -10,3 +14,10 @@ def home():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.get("/db-check")
+def db_check():
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+
+    return {"database": "connected"}
