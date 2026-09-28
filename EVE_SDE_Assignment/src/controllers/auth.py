@@ -55,7 +55,6 @@ def signup(user_data: SignupRequest, db: Session = Depends(get_db)):
 @router.post("/login")
 def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     email = login_data.email.strip().lower()
-
     user = db.query(User).filter(User.email == email).first()
 
     if not user or not verify_password(

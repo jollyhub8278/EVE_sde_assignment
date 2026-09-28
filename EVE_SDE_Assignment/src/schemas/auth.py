@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
+#DTOs (Data Transfer Objects).
 
+from pydantic import BaseModel, Field
 
 class SignupRequest(BaseModel):
     name: str = Field(min_length=2, max_length=100)

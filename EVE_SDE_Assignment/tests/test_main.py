@@ -32,3 +32,10 @@ def test_users_table_exists():
     table_names = inspect(engine).get_table_names()
 
     assert "users" in table_names
+    
+def test_diagnostic_tables_exist():
+    table_names = inspect(engine).get_table_names()
+
+    assert "centres" in table_names
+    assert "diagnostic_tests" in table_names
+    assert "centre_tests" in table_names
