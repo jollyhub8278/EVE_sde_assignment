@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 from src.models.booking import Booking
 from src.models.centre_offering import CentreTest
 from src.models.user import User
-from src.schemas.booking import BookingCreate
+from src.schemas.booking import BookingCreate, BookingResponse
 from src.utils.db import get_db
+from src.models.centre import Centre
+from src.models.diagnostic import DiagnosticTest
 from src.utils.dependencies import get_current_user
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
@@ -62,3 +64,37 @@ def create_booking(
         "amount": float(booking.amount),
         "status": booking.status,
     }
+    
+@router.get("/me/", response_model=list[BookingResponse])
+def get_my_bookings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    rows = (
+        db.query(Booking, Centre, DiagnosticTest)
+        .join(
+            CentreTest,
+            Booking.centre_test_id == CentreTest.id,
+        )
+        .join(Centre, CentreTest.centre_id == Centre.id)
+        .join(
+            DiagnosticTest,
+            CentreTest.test_id == DiagnosticTest.id,
+        )
+        .filter(Booking.user_id == current_user.id)
+        .order_by(Booking.created_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": booking.id,
+            "centre_name": centre.name,
+            "centre_location": centre.location,
+            "test_name": diagnostic_test.name,
+            "appointment_at": booking.appointment_at,
+            "amount": float(booking.amount),
+            "status": booking.status,
+        }
+        for booking, centre, diagnostic_test in rows
+    ]

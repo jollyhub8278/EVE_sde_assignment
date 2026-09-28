@@ -120,3 +120,39 @@ def test_create_booking_rejects_invalid_centre_test():
         assert response.json()["detail"] == "Centre test offering not found"
     finally:
         delete_booking_test_user(email)
+        
+def test_get_my_bookings():
+    email, headers = create_logged_in_user()
+
+    try:
+        booking_response = client.post(
+            "/bookings/",
+            headers=headers,
+            json={
+                "centre_test_id": get_valid_centre_test_id(),
+                "appointment_at": (
+                    datetime.now(timezone.utc) + timedelta(days=2)
+                ).isoformat(),
+            },
+        )
+
+        assert booking_response.status_code == 201
+
+        created_booking_id = booking_response.json()["id"]
+
+        response = client.get(
+            "/bookings/me/",
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+
+        bookings = response.json()
+
+        assert any(
+            booking["id"] == created_booking_id
+            for booking in bookings
+        )
+
+    finally:
+        delete_booking_test_user(email)
