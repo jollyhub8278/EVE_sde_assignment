@@ -9,7 +9,6 @@ from src.utils.db import SessionLocal
 
 client = TestClient(app)
 
-
 def delete_test_user(email: str):
     db = SessionLocal()
 
@@ -21,7 +20,6 @@ def delete_test_user(email: str):
             db.commit()
     finally:
         db.close()
-
 
 def test_signup_creates_user():
     email = f"test_{uuid4().hex}@example.com"
@@ -51,7 +49,6 @@ def test_signup_creates_user():
     finally:
         delete_test_user(email)
 
-
 def test_signup_rejects_duplicate_email():
     email = f"duplicate_{uuid4().hex}@example.com"
 
@@ -68,5 +65,60 @@ def test_signup_rejects_duplicate_email():
         assert first_response.status_code == 201
         assert second_response.status_code == 409
         assert second_response.json()["detail"] == "Email is already registered"
+    finally:
+        delete_test_user(email)
+        
+def test_login_returns_access_token():
+    email = f"login_{uuid4().hex}@example.com"
+
+    try:
+        signup_response = client.post(
+            "/auth/signup",
+            json={
+                "name": "Login Test User",
+                "email": email,
+                "password": "password123",
+            },
+        )
+
+        assert signup_response.status_code == 201
+
+        response = client.post(
+            "/auth/login",
+            json={
+                "email": email,
+                "password": "password123",
+            },
+        )
+
+        assert response.status_code == 200
+        assert "access_token" in response.json()
+        assert response.json()["token_type"] == "bearer"
+    finally:
+        delete_test_user(email)
+
+def test_login_rejects_wrong_password():
+    email = f"wrong_password_{uuid4().hex}@example.com"
+
+    try:
+        client.post(
+            "/auth/signup",
+            json={
+                "name": "Wrong Password Test",
+                "email": email,
+                "password": "password123",
+            },
+        )
+
+        response = client.post(
+            "/auth/login",
+            json={
+                "email": email,
+                "password": "wrongpassword",
+            },
+        )
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid email or password"
     finally:
         delete_test_user(email)
