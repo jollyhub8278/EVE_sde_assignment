@@ -122,3 +122,44 @@ def test_login_rejects_wrong_password():
         assert response.json()["detail"] == "Invalid email or password"
     finally:
         delete_test_user(email)
+        
+def test_get_my_profile_with_valid_token():
+    email = f"profile_{uuid4().hex}@example.com"
+
+    try:
+        client.post(
+            "/auth/signup",
+            json={
+                "name": "Profile Test User",
+                "email": email,
+                "password": "password123",
+            },
+        )
+
+        login_response = client.post(
+            "/auth/login",
+            json={
+                "email": email,
+                "password": "password123",
+            },
+        )
+
+        token = login_response.json()["access_token"]
+
+        response = client.get(
+            "/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["name"] == "Profile Test User"
+        assert response.json()["email"] == email
+    finally:
+        delete_test_user(email)
+
+
+def test_get_my_profile_requires_token():
+    response = client.get("/auth/me")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Not authenticated"

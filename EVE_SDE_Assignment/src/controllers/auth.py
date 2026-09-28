@@ -9,6 +9,7 @@ from src.utils.security import (
     hash_password,
     verify_password,
 )
+from src.utils.dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -70,5 +71,13 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     return {
         "access_token": access_token,
         "token_type": "bearer",
+    }
+    
+@router.get("/me")
+def get_my_profile(current_user: User = Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "name": current_user.name,
+        "email": current_user.email,
     }
     
