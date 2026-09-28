@@ -39,3 +39,18 @@ def test_diagnostic_tables_exist():
     assert "centres" in table_names
     assert "diagnostic_tests" in table_names
     assert "centre_tests" in table_names
+    
+def test_bookings_table_exists():
+    table_names = inspect(engine).get_table_names()
+
+    assert "bookings" in table_names
+    
+def test_payments_table_exists():
+    table_names = inspect(engine).get_table_names()
+
+    assert "payments" in table_names
+    
+def test_webhook_events_table_exists():
+    table_names = inspect(engine).get_table_names()
+
+    assert "webhook_events" in table_names
