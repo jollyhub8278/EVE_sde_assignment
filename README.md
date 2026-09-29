@@ -2,7 +2,7 @@
 
 A FastAPI and PostgreSQL backend for diagnostic-test bookings and simulated payments.
 
-FastAPI backend for diagnostic test bookings and simulated payments.
+It includes JWT authentication, diagnostic-centre catalogue management, protected bookings, payment simulation, and idempotent payment webhooks.
 
 ## Tech Stack
 
@@ -47,12 +47,12 @@ EVE_SDE_Assignment/
 
 ```mermaid
 flowchart TD
-    A["Login"] --> T["Select Centre and Test"]
-    T --> B["Create PENDING booking"]
-    B --> C["Pay or send webhook"]
-    C --> D["CONFIRMED or FAILED"]
-    B --> E["Cancel"]
-    E --> F["CANCELLED"]
+    A["Sign up or log in"] --> B["Select centre-test offering"]
+    B --> C["Create PENDING booking"]
+    C --> D["Payment or webhook"]
+    D --> E["CONFIRMED or FAILED"]
+    C --> F["Cancel booking"]
+    F --> G["CANCELLED"]
 ```
 
 ## Run Locally
@@ -86,15 +86,21 @@ source env/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Create the database
+### 4. Create PostgreSQL databases
+
+Run these queries while connected to PostgreSQL:
 
 ```sql
 CREATE DATABASE eve_diagnostics;
+CREATE DATABASE eve_diagnostics_test;
 ```
+
+- `eve_diagnostics` is used when running the application.
+- `eve_diagnostics_test` is used only by pytest.
 
 ### 5. Configure environment variables
 
-Copy `.env.example` to `.env`, then set your PostgreSQL password and secure values.
+Copy `.env.example` to `.env`, then add your PostgreSQL password and secure secrets.
 
 ```env
 DATABASE_URL=postgresql+psycopg://postgres:YOUR_POSTGRES_PASSWORD@localhost:5432/eve_diagnostics
@@ -103,33 +109,35 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:YOUR_POSTGRES_PASSWORD@localhost
 JWT_SECRET=replace_with_a_long_random_secret
 JWT_ALGORITHM=HS256
 JWT_EXPIRE_MINUTES=60
-<<<<<<< HEAD
 
 PAYMENT_WEBHOOK_SECRET=replace_with_a_webhook_secret
 ```
 
 ### 6. Run the application
 
-=======
-
-PAYMENT_WEBHOOK_SECRET=replace_with_a_webhook_secret
-```
-
-### 6. Run the application
-
->>>>>>> 55590807424f175719f5600fde6856e8e0a32943
 ```bash
 python -m uvicorn src.main:app --reload
 ```
 
-In another terminal:
+The API runs at:
 
->>>>>>> 55590807424f175719f5600fde6856e8e0a32943
+```text
+http://127.0.0.1:8000
+```
+
+Swagger UI:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+### 7. Seed sample diagnostic data
+
+In a second terminal:
+
 ```bash
 python -m src.seed
 ```
-
-Swagger UI: `http://127.0.0.1:8000/docs`
 
 ## API Endpoints
 
@@ -147,15 +155,52 @@ Swagger UI: `http://127.0.0.1:8000/docs`
 | POST | `/payments/webhook/` | Webhook secret | Process a payment-provider webhook |
 | GET | `/health` | No | Health check |
 
-## Example Booking Flow
+## Example Requests
 
-Get available offerings:
+### Signup
+
+```http
+POST /auth/signup
+Content-Type: application/json
+```
+
+```json
+{
+  "name": "Bharti Jangir",
+  "email": "bharti@example.com",
+  "password": "Password@123"
+}
+```
+
+### Login
+
+```http
+POST /auth/login
+Content-Type: application/json
+```
+
+```json
+{
+  "email": "bharti@example.com",
+  "password": "Password@123"
+}
+```
+
+Use the returned token in protected requests:
+
+```text
+Authorization: Bearer <access_token>
+```
+
+### Get Available Test Offerings
 
 ```http
 GET /centres/
 ```
 
-Each test `id` in this response is a `centre_test_id`. Use it to create a booking:
+Each test object in the response contains an `id`. This is the `centre_test_id` used to create a booking.
+
+### Create a Booking
 
 ```http
 POST /bookings/
@@ -170,7 +215,9 @@ Content-Type: application/json
 }
 ```
 
-Process a payment:
+The booking starts with `PENDING` status. The price is always taken from the database, not from the request.
+
+### Process a Payment
 
 ```http
 POST /payments/
@@ -185,7 +232,16 @@ Content-Type: application/json
 }
 ```
 
-Send a provider webhook:
+Valid payment results:
+
+```text
+SUCCESS
+FAILED
+```
+
+A successful payment changes the booking to `CONFIRMED`. A failed payment changes it to `FAILED`.
+
+### Payment Webhook
 
 ```http
 POST /payments/webhook/
@@ -201,13 +257,13 @@ Content-Type: application/json
 }
 ```
 
-Repeated deliveries with the same event ID do not create duplicate payments. A repeated event ID with different data returns `409 Conflict`.
+Sending the same event ID with the same payload is safe and does not create a duplicate payment. Reusing an event ID with different data returns `409 Conflict`.
 
 ## Database Design
 
 | Table | Purpose |
 |---|---|
-| `users` | User profile and hashed password |
+| `users` | Registered users and hashed passwords |
 | `centres` | Diagnostic-centre name and location |
 | `diagnostic_tests` | Reusable diagnostic-test names |
 | `centre_tests` | A test offering at a centre and its price |
@@ -225,14 +281,14 @@ Important database constraints:
 
 ## Validation and Security
 
-- Passwords are hashed with `pwdlib`
-- JWT is required for user-owned resources
-- Users cannot pay for or cancel another user's booking
-- Appointment times must include a timezone and be in the future
-- Booking price always comes from the database
-- Row locks prevent duplicate concurrent payment processing
-- Webhooks require `X-Webhook-Secret`
-- Webhook events are idempotent using unique event IDs
+- Passwords are hashed.
+- JWT is required for user-owned booking and payment actions.
+- Users cannot pay for or cancel another user’s booking.
+- Appointment times must include a timezone and be in the future.
+- Booking amounts come from the database.
+- Row locks prevent concurrent duplicate payment processing.
+- Webhooks require `X-Webhook-Secret`.
+- Webhook events use unique event IDs for idempotency.
 
 ## Tests
 
@@ -252,6 +308,6 @@ Current result:
 
 ## Assumptions and Future Improvements
 
-- In this small assignment, any JWT-authenticated user can manage centre catalogue data. Production code should add admin roles.
-- Payments are simulated; a real system would use provider signatures, refunds, and retry queues.
-- With more time: Alembic migrations, pagination, structured logging, CI, Docker, and role-based access control.
+- Any authenticated user can manage the diagnostic catalogue in this assignment. A production system should use admin roles.
+- Payments are simulated. A production system would use provider signatures, retry logic, refunds, and reconciliation.
+- With more time, I would add Alembic migrations, payment retries for failed bookings, pagination, structured logging, CI, Docker, and role-based access control.
