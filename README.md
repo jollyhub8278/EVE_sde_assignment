@@ -1,8 +1,8 @@
 # EVE Diagnostics Booking API
 
-A backend service for diagnostic-test bookings and simulated payments, built with FastAPI and PostgreSQL.
+A FastAPI and PostgreSQL backend for diagnostic test bookings and simulated payments.
 
-It supports user authentication with JWT, diagnostic-centre and test management, protected bookings, simulated payments, and idempotent payment webhooks.
+It includes JWT authentication, diagnostic-centre catalogue management, protected bookings, payment simulation, and idempotent payment webhooks.
 
 ## Tech Stack
 
@@ -10,57 +10,58 @@ It supports user authentication with JWT, diagnostic-centre and test management,
 - FastAPI
 - PostgreSQL
 - SQLAlchemy
+- Pydantic
 - PyJWT
-- pwdlib for password hashing
-- Pytest and HTTPX for tests
+- pwdlib
+- Pytest
 
 ## Features
 
-- User signup and login
-- JWT-based protected routes
-- Input validation using Pydantic schemas
-- Retrieve diagnostic centres, tests, and prices
-- Add diagnostic centres and their available tests
-- Create a diagnostic-test booking
-- View the logged-in user's bookings
-- Simulate successful or failed payments
-- Process idempotent payment webhooks
-- Automated tests for major success and error cases
+- User signup, login, and JWT-protected routes
+- Diagnostic centres, tests, and test prices
+- Create and view user-owned bookings
+- Cancel pending bookings
+- Simulated successful and failed payments
+- Idempotent payment webhook processing
+- Webhook shared-secret validation
+- PostgreSQL constraints for valid and duplicate data
+- Isolated PostgreSQL test database
 
 ## Project Structure
 
 ```text
-src/
-├── controllers/       # API routes and business logic
-├── models/            # SQLAlchemy database models
-├── schemas/           # Request and response validation schemas
-├── utils/             # Database, JWT, and dependency helpers
-├── main.py            # FastAPI application entry point
-└── seed.py            # Sample diagnostic catalogue data
-
-tests/                 # Automated tests
-requirements.txt
-README.md
+EVE_SDE_Assignment/
+├── src/
+│   ├── controllers/   # API routes
+│   ├── models/        # SQLAlchemy models
+│   ├── schemas/       # Pydantic request/response schemas
+│   ├── utils/         # Database and authentication helpers
+│   ├── main.py        # FastAPI application
+│   └── seed.py        # Sample catalogue data
+├── tests/             # Automated tests and fixtures
+├── .env.example
+└── requirements.txt
 ```
 
-## Booking and Payment Flow
+## Booking Flow
 
 ```mermaid
 flowchart TD
-    A["Sign up or log in"] --> B["Create protected booking"]
-    B --> C["Booking status: PENDING"]
-    C --> D["Payment endpoint or webhook"]
-    D --> E["Payment record created"]
-    E --> F["Booking: CONFIRMED or FAILED"]
+    A["Sign up or log in"] --> B["Select centre-test offering"]
+    B --> C["Create PENDING booking"]
+    C --> D["Payment or webhook"]
+    D --> E["CONFIRMED or FAILED"]
+    C --> F["Cancel booking"]
+    F --> G["CANCELLED"]
 ```
 
-## Local Setup
+## Run Locally
 
 ### 1. Clone the repository
 
 ```bash
 git clone https://github.com/jollyhub8278/EVE_sde_assignment.git
-cd EVE_SDE_Assignment
+cd EVE_sde_assignment/EVE_SDE_Assignment
 ```
 
 ### 2. Create and activate a virtual environment
@@ -72,49 +73,59 @@ python -m venv env
 .\env\Scripts\activate
 ```
 
+macOS/Linux:
+
+```bash
+python3 -m venv env
+source env/bin/activate
+```
+
 ### 3. Install dependencies
 
-```powershell
+```bash
 pip install -r requirements.txt
 ```
 
-### 4. Create the PostgreSQL database
+### 4. Create PostgreSQL databases
 
-Using pgAdmin or PostgreSQL terminal, create:
+Run these queries while connected to PostgreSQL:
 
 ```sql
 CREATE DATABASE eve_diagnostics;
+CREATE DATABASE eve_diagnostics_test;
 ```
 
-### 5. Create a `.env` file
+- `eve_diagnostics` is used when running the application.
+- `eve_diagnostics_test` is used only by pytest.
 
-Create `.env` in the project root:
+### 5. Configure environment variables
+
+Copy `.env.example` to `.env`, then add your PostgreSQL password and secure secrets.
 
 ```env
 DATABASE_URL=postgresql+psycopg://postgres:YOUR_POSTGRES_PASSWORD@localhost:5432/eve_diagnostics
+TEST_DATABASE_URL=postgresql+psycopg://postgres:YOUR_POSTGRES_PASSWORD@localhost:5432/eve_diagnostics_test
 
 JWT_SECRET=replace_with_a_long_random_secret
 JWT_ALGORITHM=HS256
 JWT_EXPIRE_MINUTES=60
-```
 
-Replace `YOUR_POSTGRES_PASSWORD` with your local PostgreSQL password.
+PAYMENT_WEBHOOK_SECRET=replace_with_a_webhook_secret
+```
 
 ### 6. Run the application
 
-Run this command from the folder that contains `src`:
-
-```powershell
+```bash
 python -m uvicorn src.main:app --reload
 ```
 
-The API will run at:
+The API runs at:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-Interactive Swagger documentation:
+Swagger UI:
 
 ```text
 http://127.0.0.1:8000/docs
@@ -122,31 +133,27 @@ http://127.0.0.1:8000/docs
 
 ### 7. Seed sample diagnostic data
 
-Open a second terminal in the project folder and run:
+In a second terminal:
 
-```powershell
+```bash
 python -m src.seed
 ```
-
-This creates sample centres, diagnostic tests, and centre-test offerings.
 
 ## API Endpoints
 
 | Method | Endpoint | Authentication | Description |
-|---|---|---:|---|
-| POST | `/auth/signup` | No | Register a new user |
-| POST | `/auth/login` | No | Log in and receive a JWT token |
-| GET | `/auth/me` | Yes | Get the current user's profile |
-| GET | `/centres/` | No | Retrieve diagnostic centres, tests, and prices |
-| POST | `/centres/` | Yes | Add a diagnostic centre with available tests |
-| POST | `/bookings/` | Yes | Create a diagnostic-test booking |
-| GET | `/bookings/me/` | Yes | Get bookings belonging to the current user |
-| POST | `/payments/` | Yes | Simulate payment processing |
-| POST | `/payments/webhook/` | No* | Process payment-provider webhook events |
-| GET | `/health` | No | Health-check endpoint |
-| GET | `/db-check` | No | Verify database connectivity |
-
-\*The webhook is intentionally public because it simulates an external payment provider.
+|---|---|---|---|
+| POST | `/auth/signup` | No | Register a user |
+| POST | `/auth/login` | No | Log in and receive a JWT |
+| GET | `/auth/me` | JWT | Get current user profile |
+| GET | `/centres/` | No | List centres, test offerings, and prices |
+| POST | `/centres/` | JWT | Create a centre with test offerings |
+| POST | `/bookings/` | JWT | Create a pending booking |
+| GET | `/bookings/me/` | JWT | List current user bookings |
+| POST | `/bookings/{booking_id}/cancel/` | JWT | Cancel a pending booking |
+| POST | `/payments/` | JWT | Process a simulated payment |
+| POST | `/payments/webhook/` | Webhook secret | Process a payment-provider webhook |
+| GET | `/health` | No | Health check |
 
 ## Example Requests
 
@@ -179,44 +186,19 @@ Content-Type: application/json
 }
 ```
 
-Copy the returned `access_token` and use it as:
+Use the returned token in protected requests:
 
 ```text
 Authorization: Bearer <access_token>
 ```
 
-### Get Centres and Available Tests
+### Get Available Test Offerings
 
 ```http
 GET /centres/
 ```
 
-The response includes each centre, its location, offered tests, and prices. Use a `centre_test_id` from this response when creating a booking.
-
-### Add a Diagnostic Centre
-
-```http
-POST /centres/
-Authorization: Bearer <access_token>
-Content-Type: application/json
-```
-
-```json
-{
-  "name": "CarePlus Diagnostics",
-  "location": "Jaipur, Rajasthan",
-  "tests": [
-    {
-      "name": "Vitamin D",
-      "price": 750
-    },
-    {
-      "name": "Lipid Profile",
-      "price": 550
-    }
-  ]
-}
-```
+Each test object in the response contains an `id`. This is the `centre_test_id` used to create a booking.
 
 ### Create a Booking
 
@@ -233,15 +215,9 @@ Content-Type: application/json
 }
 ```
 
-A new booking is created with:
+The booking starts with `PENDING` status. The price is always taken from the database, not from the request.
 
-```text
-status = PENDING
-```
-
-The amount is copied from the centre-test offering, so the client cannot change the price.
-
-### Simulate a Payment
+### Process a Payment
 
 ```http
 POST /payments/
@@ -256,7 +232,7 @@ Content-Type: application/json
 }
 ```
 
-Possible payment results:
+Valid payment results:
 
 ```text
 SUCCESS
@@ -269,6 +245,7 @@ A successful payment changes the booking to `CONFIRMED`. A failed payment change
 
 ```http
 POST /payments/webhook/
+X-Webhook-Secret: <PAYMENT_WEBHOOK_SECRET>
 Content-Type: application/json
 ```
 
@@ -280,87 +257,57 @@ Content-Type: application/json
 }
 ```
 
-Sending the same `event_id` again returns:
-
-```json
-{
-  "message": "Webhook event already processed",
-  "event_id": "event_001"
-}
-```
-
-This prevents duplicate payment records and duplicate booking updates.
+Sending the same event ID with the same payload is safe and does not create a duplicate payment. Reusing an event ID with different data returns `409 Conflict`.
 
 ## Database Design
 
 | Table | Purpose |
 |---|---|
-| `users` | Stores registered users and hashed passwords |
-| `centres` | Stores diagnostic-centre name and location |
-| `diagnostic_tests` | Stores reusable diagnostic-test names |
-| `centre_tests` | Connects a centre to a test and stores its price |
-| `bookings` | Stores user booking, appointment time, amount, and status |
-| `payments` | Stores simulated payment attempts and results |
-| `webhook_events` | Stores unique webhook event IDs for idempotency |
+| `users` | Registered users and hashed passwords |
+| `centres` | Diagnostic-centre name and location |
+| `diagnostic_tests` | Reusable diagnostic-test names |
+| `centre_tests` | A test offering at a centre and its price |
+| `bookings` | User appointment, copied amount, and status |
+| `payments` | One simulated payment per booking |
+| `webhook_events` | Processed webhook event IDs |
 
-### Relationships
+Important database constraints:
 
-```text
-User → Bookings
-Centre → Centre Tests
-Diagnostic Test → Centre Tests
-Centre Test → Bookings
-Booking → Payments
-Booking → Webhook Events
-```
+- Unique centre name and location
+- Unique test offering per centre
+- One payment per booking
+- Valid booking statuses: `PENDING`, `CONFIRMED`, `FAILED`, `CANCELLED`
+- Money stored as `Numeric(10, 2)`
 
-## Validation and Edge Cases Handled
+## Validation and Security
 
-- Duplicate signup email returns an error
-- Invalid login credentials return `401 Unauthorized`
-- Protected endpoints require a valid JWT
-- A user cannot pay for another user's booking
-- Invalid booking IDs return `404 Not Found`
-- A booking must use a valid centre-test offering
-- Appointment time must include a timezone and be in the future
-- Booking amount comes from the database price, not the request body
-- A non-pending booking cannot be paid again
-- Duplicate centre creation returns `409 Conflict`
-- Repeated webhook events do not create duplicate payment records
-- Failed payments update the booking status to `FAILED`
+- Passwords are hashed.
+- JWT is required for user-owned booking and payment actions.
+- Users cannot pay for or cancel another user’s booking.
+- Appointment times must include a timezone and be in the future.
+- Booking amounts come from the database.
+- Row locks prevent concurrent duplicate payment processing.
+- Webhooks require `X-Webhook-Secret`.
+- Webhook events use unique event IDs for idempotency.
 
-## Running Tests
+## Tests
 
 Run all tests with:
 
-```powershell
+```bash
 python -m pytest
 ```
+
+The test suite uses `eve_diagnostics_test`, not the development database. `tests/conftest.py` recreates and seeds the test database before each test.
 
 Current result:
 
 ```text
-25 passed
+31 passed
 ```
 
-## Assumptions
+## Assumptions and Future Improvements
 
-- This is a compact backend assignment, so any authenticated user can add diagnostic catalogue data. In a production system, this endpoint should be restricted to an admin role.
-- Diagnostic-test names are shared across centres; each centre can set its own price through `centre_tests`.
-- Payment processing is deterministic for testing: the client sends `SUCCESS` or `FAILED`.
-- The webhook endpoint does not require JWT because it represents an external provider callback.
-- Webhook idempotency is implemented using a unique `event_id`.
-- No real payment gateway or webhook signature verification is included because payments are simulated.
-
-## Improvements With More Time
-
-- Add role-based access control for catalogue management
-- Use Alembic migrations instead of creating tables at startup
-- Add webhook signature verification
-- Add pagination and filtering for centres and bookings
-- Add cancellation endpoint and cancellation rules
-- Add booking-slot availability checks
-- Add structured logging and request IDs
-- Add Docker and Docker Compose for one-command setup
-- Add CI pipeline to run tests automatically on GitHub
-- Add rate limiting and retry handling for webhook delivery
+- Any authenticated user can manage the diagnostic catalogue in this assignment. A production system should use admin roles.
+- Payments are simulated. A production system would use provider signatures, retry logic, refunds, and reconciliation.
+- With more time, I would add Alembic migrations, payment retries for failed bookings, pagination, structured logging, CI, Docker, and role-based access control.
