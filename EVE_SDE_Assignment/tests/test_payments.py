@@ -1,6 +1,6 @@
+import os
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
-
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -14,6 +14,9 @@ from src.models.webhook_event import WebhookEvent
 
 client = TestClient(app)
 
+WEBHOOK_HEADERS = {
+    "X-Webhook-Secret": os.environ["PAYMENT_WEBHOOK_SECRET"],
+}
 
 def create_pending_booking():
     email = f"payment_{uuid4().hex}@example.com"
@@ -168,11 +171,13 @@ def test_webhook_is_idempotent():
 
         first_response = client.post(
             "/payments/webhook/",
+            headers=WEBHOOK_HEADERS,
             json=payload,
         )
 
         second_response = client.post(
             "/payments/webhook/",
+            headers=WEBHOOK_HEADERS,
             json=payload,
         )
 
@@ -204,5 +209,181 @@ def test_webhook_is_idempotent():
             assert event_count == 1
         finally:
             db.close()
+    finally:
+        delete_payment_test_user(email)
+        
+def test_webhook_rejects_same_event_with_different_data():
+    email, _, booking_id = create_pending_booking()
+    event_id = f"event_{uuid4().hex}"
+
+    try:
+        first_response = client.post(
+            "/payments/webhook/",
+            headers=WEBHOOK_HEADERS,
+            json={
+                "event_id": event_id,
+                "booking_id": booking_id,
+                "result": "SUCCESS",
+            },
+        )
+
+        conflict_response = client.post(
+            "/payments/webhook/",
+            headers=WEBHOOK_HEADERS,
+            json={
+                "event_id": event_id,
+                "booking_id": booking_id,
+                "result": "FAILED",
+            },
+        )
+
+        assert first_response.status_code == 200
+
+        assert conflict_response.status_code == 409
+        assert (
+            conflict_response.json()["detail"]
+            == "Webhook event ID was already used with different data"
+        )
+    finally:
+        delete_payment_test_user(email)
+        
+def test_webhook_rejects_event_for_completed_booking():
+    email, _, booking_id = create_pending_booking()
+
+    try:
+        first_response = client.post(
+            "/payments/webhook/",
+            headers=WEBHOOK_HEADERS,
+            json={
+                "event_id": f"event_{uuid4().hex}",
+                "booking_id": booking_id,
+                "result": "SUCCESS",
+            },
+        )
+
+        late_response = client.post(
+            "/payments/webhook/",
+            headers=WEBHOOK_HEADERS,
+            json={
+                "event_id": f"event_{uuid4().hex}",
+                "booking_id": booking_id,
+                "result": "FAILED",
+            },
+        )
+
+        assert first_response.status_code == 200
+
+        assert late_response.status_code == 409
+        assert late_response.json()["detail"] == "Booking is already CONFIRMED"
+    finally:
+        delete_payment_test_user(email)
+        
+def test_user_cannot_pay_for_another_users_booking():
+    owner_email, _, booking_id = create_pending_booking()
+    other_email = f"other_{uuid4().hex}@example.com"
+
+    try:
+        client.post(
+            "/auth/signup",
+            json={
+                "name": "Other User",
+                "email": other_email,
+                "password": "password123",
+            },
+        )
+
+        login_response = client.post(
+            "/auth/login",
+            json={
+                "email": other_email,
+                "password": "password123",
+            },
+        )
+
+        other_headers = {
+            "Authorization": (
+                f"Bearer {login_response.json()['access_token']}"
+            )
+        }
+
+        response = client.post(
+            "/payments/",
+            headers=other_headers,
+            json={
+                "booking_id": booking_id,
+                "result": "SUCCESS",
+            },
+        )
+
+        assert response.status_code == 403
+        assert (
+            response.json()["detail"]
+            == "You cannot pay for another user's booking"
+        )
+    finally:
+        delete_payment_test_user(owner_email)
+        delete_payment_test_user(other_email)
+        
+def test_payment_rejects_already_paid_booking():
+    email, headers, booking_id = create_pending_booking()
+
+    try:
+        first_response = client.post(
+            "/payments/",
+            headers=headers,
+            json={
+                "booking_id": booking_id,
+                "result": "SUCCESS",
+            },
+        )
+
+        second_response = client.post(
+            "/payments/",
+            headers=headers,
+            json={
+                "booking_id": booking_id,
+                "result": "SUCCESS",
+            },
+        )
+
+        assert first_response.status_code == 201
+
+        assert second_response.status_code == 400
+        assert (
+            second_response.json()["detail"]
+            == "This booking cannot be paid"
+        )
+
+        db = SessionLocal()
+
+        try:
+            payment_count = (
+                db.query(Payment)
+                .filter(Payment.booking_id == booking_id)
+                .count()
+            )
+
+            assert payment_count == 1
+        finally:
+            db.close()
+
+    finally:
+        delete_payment_test_user(email)
+        
+def test_webhook_rejects_missing_secret():
+    email, _, booking_id = create_pending_booking()
+
+    try:
+        response = client.post(
+            "/payments/webhook/",
+            json={
+                "event_id": f"event_{uuid4().hex}",
+                "booking_id": booking_id,
+                "result": "SUCCESS",
+            },
+        )
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid webhook secret"
     finally:
         delete_payment_test_user(email)

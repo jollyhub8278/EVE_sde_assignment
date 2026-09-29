@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import hmac
+import os
+from fastapi import APIRouter, Depends,Header, HTTPException, status
 from sqlalchemy.orm import Session
-
+from sqlalchemy.exc import IntegrityError
 from src.models.booking import Booking
 from src.models.payment import Payment
 from src.models.user import User
@@ -10,7 +12,7 @@ from src.utils.db import get_db
 from src.utils.dependencies import get_current_user
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
-
+WEBHOOK_SECRET = os.getenv("PAYMENT_WEBHOOK_SECRET")
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def process_payment(
@@ -21,6 +23,7 @@ def process_payment(
     booking = (
         db.query(Booking)
         .filter(Booking.id == payment_data.booking_id)
+        .with_for_update()
         .first()
     )
 
@@ -64,14 +67,35 @@ def process_payment(
         "booking_id": booking.id,
         "payment_status": payment.status,
         "booking_status": booking.status,
-        "amount": float(payment.amount),
+        "amount": payment.amount,
     }
     
 @router.post("/webhook/")
 def payment_webhook(
     webhook_data: PaymentWebhook,
     db: Session = Depends(get_db),
+    provider_secret: str | None = Header(
+        default=None,
+        alias="X-Webhook-Secret",
+    ),
 ):
+    if not WEBHOOK_SECRET:
+        raise HTTPException(
+            status_code=500,
+            detail="Payment webhook secret is not configured",
+        )
+
+    if (
+        not provider_secret
+        or not hmac.compare_digest(
+            provider_secret,
+            WEBHOOK_SECRET,
+        )
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid webhook secret",
+        )
     existing_event = (
         db.query(WebhookEvent)
         .filter(WebhookEvent.event_id == webhook_data.event_id)
@@ -79,32 +103,49 @@ def payment_webhook(
     )
 
     if existing_event:
+        if (
+            existing_event.booking_id != webhook_data.booking_id
+            or existing_event.result != webhook_data.result
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Webhook event ID was already used with different data",
+            )
+
         return {
             "message": "Webhook event already processed",
             "event_id": existing_event.event_id,
         }
 
-    booking = (
-        db.query(Booking)
-        .filter(Booking.id == webhook_data.booking_id)
-        .first()
-    )
-
-    if not booking:
-        raise HTTPException(
-            status_code=404,
-            detail="Booking not found",
+    try:
+        booking = (
+            db.query(Booking)
+            .filter(Booking.id == webhook_data.booking_id)
+            .with_for_update()
+            .first()
         )
 
-    webhook_event = WebhookEvent(
-        event_id=webhook_data.event_id,
-        booking_id=booking.id,
-        result=webhook_data.result,
-    )
+        if not booking:
+            raise HTTPException(
+                status_code=404,
+                detail="Booking not found",
+            )
 
-    db.add(webhook_event)
+        if booking.status != "PENDING":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Booking is already {booking.status}",
+            )
 
-    if booking.status == "PENDING":
+        webhook_event = WebhookEvent(
+            event_id=webhook_data.event_id,
+            booking_id=booking.id,
+            result=webhook_data.result,
+        )
+
+        db.add(webhook_event)
+        db.flush()
+
         payment = Payment(
             booking_id=booking.id,
             amount=booking.amount,
@@ -119,10 +160,33 @@ def payment_webhook(
             else "FAILED"
         )
 
-    db.commit()
+        db.commit()
+        db.refresh(webhook_event)
+        db.refresh(booking)
 
-    return {
-        "message": "Webhook processed successfully",
-        "event_id": webhook_event.event_id,
-        "booking_status": booking.status,
-    }
+        return {
+            "message": "Webhook processed successfully",
+            "event_id": webhook_event.event_id,
+            "booking_status": booking.status,
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except IntegrityError:
+        db.rollback()
+
+        existing_event = (
+            db.query(WebhookEvent)
+            .filter(WebhookEvent.event_id == webhook_data.event_id)
+            .first()
+        )
+
+        if existing_event:
+            return {
+                "message": "Webhook event already processed",
+                "event_id": existing_event.event_id,
+            }
+
+        raise

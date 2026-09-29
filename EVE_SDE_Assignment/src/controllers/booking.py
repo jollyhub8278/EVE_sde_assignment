@@ -1,8 +1,6 @@
 from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-
 from src.models.booking import Booking
 from src.models.centre_offering import CentreTest
 from src.models.user import User
@@ -61,7 +59,7 @@ def create_booking(
         "id": booking.id,
         "centre_test_id": booking.centre_test_id,
         "appointment_at": booking.appointment_at,
-        "amount": float(booking.amount),
+        "amount": booking.amount,
         "status": booking.status,
     }
     
@@ -93,8 +91,45 @@ def get_my_bookings(
             "centre_location": centre.location,
             "test_name": diagnostic_test.name,
             "appointment_at": booking.appointment_at,
-            "amount": float(booking.amount),
+            "amount": booking.amount,
             "status": booking.status,
         }
         for booking, centre, diagnostic_test in rows
     ]
+    
+@router.post("/{booking_id}/cancel/")
+def cancel_booking(booking_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),):
+    booking = (
+        db.query(Booking)
+        .filter(Booking.id == booking_id)
+        .with_for_update()
+        .first()
+    )
+
+    if not booking:
+        raise HTTPException(
+            status_code=404,
+            detail="Booking not found",
+        )
+
+    if booking.user_id != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="You cannot cancel another user's booking",
+        )
+
+    if booking.status != "PENDING":
+        raise HTTPException(
+            status_code=400,
+            detail="Only pending bookings can be cancelled",
+        )
+
+    booking.status = "CANCELLED"
+
+    db.commit()
+    db.refresh(booking)
+
+    return {
+        "id": booking.id,
+        "status": booking.status,
+    }

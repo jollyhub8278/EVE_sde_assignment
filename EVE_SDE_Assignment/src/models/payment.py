@@ -6,7 +6,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from src.utils.db import Base
 
-
 class Payment(Base):
     __tablename__ = "payments"
 
@@ -15,6 +14,8 @@ class Payment(Base):
     booking_id: Mapped[int] = mapped_column(
         ForeignKey("bookings.id"),
         nullable=False,
+        unique=True,
+        index=True,
     )
 
     amount: Mapped[Decimal] = mapped_column(

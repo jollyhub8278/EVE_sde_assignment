@@ -156,3 +156,34 @@ def test_get_my_bookings():
 
     finally:
         delete_booking_test_user(email)
+        
+def test_user_can_cancel_pending_booking():
+    email, headers = create_logged_in_user()
+
+    try:
+        booking_response = client.post(
+            "/bookings/",
+            headers=headers,
+            json={
+                "centre_test_id": get_valid_centre_test_id(),
+                "appointment_at": (
+                    datetime.now(timezone.utc) + timedelta(days=2)
+                ).isoformat(),
+            },
+        )
+
+        assert booking_response.status_code == 201
+
+        booking_id = booking_response.json()["id"]
+
+        cancel_response = client.post(
+            f"/bookings/{booking_id}/cancel/",
+            headers=headers,
+        )
+
+        assert cancel_response.status_code == 200
+        assert cancel_response.json()["id"] == booking_id
+        assert cancel_response.json()["status"] == "CANCELLED"
+
+    finally:
+        delete_booking_test_user(email)

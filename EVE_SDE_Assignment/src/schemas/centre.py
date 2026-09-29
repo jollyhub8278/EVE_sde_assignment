@@ -1,11 +1,12 @@
-from pydantic import BaseModel
-from pydantic import Field
+from decimal import Decimal
+
+from pydantic import BaseModel, Field
 
 
 class AvailableTestResponse(BaseModel):
     id: int
     name: str
-    price: float
+    price: Decimal
 
 
 class CentreResponse(BaseModel):
@@ -13,10 +14,15 @@ class CentreResponse(BaseModel):
     name: str
     location: str
     tests: list[AvailableTestResponse]
-    
+
+
 class CentreTestCreate(BaseModel):
     name: str = Field(min_length=2, max_length=150)
-    price: float = Field(gt=0)
+    price: Decimal = Field(
+        gt=0,
+        max_digits=10,
+        decimal_places=2,
+    )
 
 
 class CentreCreate(BaseModel):

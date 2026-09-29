@@ -1,5 +1,5 @@
 from datetime import datetime
-
+from decimal import Decimal
 from pydantic import BaseModel, Field
 
 
@@ -13,5 +13,5 @@ class BookingResponse(BaseModel):
     centre_location: str
     test_name: str
     appointment_at: datetime
-    amount: float
+    amount: Decimal
     status: str

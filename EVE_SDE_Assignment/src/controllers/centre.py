@@ -34,9 +34,9 @@ def get_centres(db: Session = Depends(get_db)):
 
         centres[centre.id]["tests"].append(
             {
-                "id": diagnostic_test.id,
+                "id": centre_test.id,
                 "name": diagnostic_test.name,
-                "price": float(centre_test.price),
+                "price": centre_test.price,
             }
         )
 
@@ -97,12 +97,13 @@ def create_centre(
         )
 
         db.add(centre_test)
+        db.flush()
 
         created_tests.append(
             {
-                "id": diagnostic_test.id,
+                "id": centre_test.id,
                 "name": diagnostic_test.name,
-                "price": float(test_data.price),
+                "price": test_data.price,
             }
         )
 
