@@ -289,6 +289,7 @@ Important database constraints:
 - Row locks prevent concurrent duplicate payment processing.
 - Webhooks require `X-Webhook-Secret`.
 - Webhook events use unique event IDs for idempotency.
+- GitHub Actions also runs the test suite automatically on every push to `main`.
 
 ## Tests
 
